@@ -474,6 +474,7 @@ elif page == "📊 事前効果検証(後半)":
 # フッター
 st.sidebar.markdown("---")
 st.sidebar.caption("© 2025 広告最適化ツール")
+def train_hill_model(x_data, y_data):
     """Hillモデルの学習"""
     with pm.Model() as model:
         slope = pm.HalfNormal('slope', sigma=1)
