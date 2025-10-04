@@ -1,9 +1,9 @@
-streamlit==1.32.0
-pandas==2.2.0
-numpy==1.26.0
-pymc==5.10.0
-arviz==0.17.0
-pygam==0.9.1
+streamlit
+pandas
+numpy
+pymc
+arviz
+pygam
 scipy
-scikit-learn==1.4.0
-plotly==5.19.0
+scikit-learn
+plotly
