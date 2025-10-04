@@ -75,17 +75,27 @@ if 'combined_df' not in st.session_state:
 # サイドバー
 st.sidebar.title("📊 広告最適化ツール")
 
-# データアップロード
-uploaded_file = st.sidebar.file_uploader(
-    "CSVデータをアップロード",
-    type=['csv'],
-    help="combined_dfのCSVファイルをアップロードしてください"
-)
+# Secretsからデータパスを取得
+data_path = st.secrets.get("data_path", None)
 
-if uploaded_file is not None:
-    st.session_state.combined_df = pd.read_csv(uploaded_file)
-    st.session_state.combined_df['week_start_date'] = pd.to_datetime(st.session_state.combined_df['week_start_date'])
-    st.sidebar.success(f"✅ データ読み込み完了 ({len(st.session_state.combined_df)}行)")
+if data_path:
+    # Secretsにデータパスが設定されている場合
+    if st.session_state.combined_df is None:
+        st.session_state.combined_df = pd.read_csv(data_path)
+        st.session_state.combined_df['week_start_date'] = pd.to_datetime(st.session_state.combined_df['week_start_date'])
+        st.sidebar.success(f"✅ データ読み込み完了 ({len(st.session_state.combined_df)}行)")
+else:
+    # Secretsが設定されていない場合はアップロード機能を使用
+    uploaded_file = st.sidebar.file_uploader(
+        "CSVデータをアップロード",
+        type=['csv'],
+        help="combined_dfのCSVファイルをアップロードしてください"
+    )
+    
+    if uploaded_file is not None:
+        st.session_state.combined_df = pd.read_csv(uploaded_file)
+        st.session_state.combined_df['week_start_date'] = pd.to_datetime(st.session_state.combined_df['week_start_date'])
+        st.sidebar.success(f"✅ データ読み込み完了 ({len(st.session_state.combined_df)}行)")
 
 page = st.sidebar.radio(
     "分析メニュー",
