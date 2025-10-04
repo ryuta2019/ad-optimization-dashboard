@@ -1,0 +1,12 @@
+# 機密情報
+.streamlit/secrets.toml
+
+# 環境関連
+venv/
+__pycache__/
+*.pyc
+.env
+
+# データファイル
+*.csv
+*.pkl
