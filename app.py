@@ -745,7 +745,7 @@ elif page == "🎯 投資費用最適化":
         with col2:
             priority_ratio = st.slider(
                 "優先媒体への配分比率",
-                0.0, 1.0, 0.70, 0.001,
+                0.0, 1.0, 0.70, 0.00001,
                 key="opt_priority_ratio"
             )
     
