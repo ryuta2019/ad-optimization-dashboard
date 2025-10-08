@@ -343,6 +343,24 @@ def train_optimization_models(df, config):
         y_data = filtered_df[cfg['target_variable']].values
         X_gam = filtered_df[['total_spend']]
         
+        # ★★★ 新機能: 0円を除外した下位3つの平均を最低予算として設定 ★★★
+        non_zero_spends = filtered_df[filtered_df['total_spend'] > 0]['total_spend'].values
+        
+        if len(non_zero_spends) >= 3:
+            # 下位3つの平均を計算
+            sorted_spends = np.sort(non_zero_spends)
+            bottom_3_avg = np.mean(sorted_spends[:3])
+            min_budget_constraint = bottom_3_avg
+        elif len(non_zero_spends) > 0:
+            # データが3件未満の場合は最小値を使用
+            min_budget_constraint = np.min(non_zero_spends)
+        else:
+            # 0円しかない場合は最小値として1000円を設定
+            min_budget_constraint = 1000
+        
+        # 最低でも1000円は確保
+        min_budget_constraint = max(min_budget_constraint, 1000)
+        
         try:
             if model_type == 'hill':
                 trace = train_hill_model(x_data, y_data)
@@ -350,8 +368,9 @@ def train_optimization_models(df, config):
                     'model_type': 'hill',
                     'vmax_mean': trace.posterior['Vmax'].mean().item(),
                     'ec50_mean': trace.posterior['EC50'].mean().item(),
-                    'min_spend': filtered_df['total_spend'].min(),
-                    'max_spend': filtered_df['total_spend'].max()
+                    'min_spend': min_budget_constraint,
+                    'max_spend': filtered_df['total_spend'].max(),
+                    'bottom_3_avg': bottom_3_avg if len(non_zero_spends) >= 3 else min_budget_constraint
                 }
             elif model_type == 'linear':
                 trace = train_linear_model(x_data, y_data)
@@ -359,8 +378,9 @@ def train_optimization_models(df, config):
                     'model_type': 'linear',
                     'alpha_mean': trace.posterior['alpha'].mean().item(),
                     'beta_mean': trace.posterior['beta'].mean().item(),
-                    'min_spend': filtered_df['total_spend'].min(),
-                    'max_spend': filtered_df['total_spend'].max()
+                    'min_spend': min_budget_constraint,
+                    'max_spend': filtered_df['total_spend'].max(),
+                    'bottom_3_avg': bottom_3_avg if len(non_zero_spends) >= 3 else min_budget_constraint
                 }
             elif model_type == 'gam':
                 if len(filtered_df) < 10:
@@ -369,8 +389,9 @@ def train_optimization_models(df, config):
                 model_params[channel_name] = {
                     'model_type': 'gam',
                     'gam_model': gam,
-                    'min_spend': filtered_df['total_spend'].min(),
-                    'max_spend': filtered_df['total_spend'].max()
+                    'min_spend': min_budget_constraint,
+                    'max_spend': filtered_df['total_spend'].max(),
+                    'bottom_3_avg': bottom_3_avg if len(non_zero_spends) >= 3 else min_budget_constraint
                 }
         except Exception as e:
             st.warning(f"媒体 {channel_name} の学習中にエラー: {e}")
@@ -745,7 +766,7 @@ elif page == "🎯 投資費用最適化":
         with col2:
             priority_ratio = st.slider(
                 "優先媒体への配分比率",
-                0.0, 1.0, 0.70, 0.00001,
+                0.0, 1.0, 0.70, 0.0001,
                 key="opt_priority_ratio"
             )
     
@@ -810,6 +831,7 @@ elif page == "🎯 投資費用最適化":
             '媒体': channels,
             'モデル': [model_params[ch]['model_type'].upper() for ch in channels],
             '最適配分予算': optimal_budgets,
+            '最低予算制約': [model_params[ch].get('bottom_3_avg', model_params[ch]['min_spend']) for ch in channels],
             '予算比率': optimal_budgets / total_budget,
             '予測成果': predicted_revenues
         })
@@ -820,10 +842,14 @@ elif page == "🎯 投資費用最適化":
         # フォーマット
         display_df = result_df.copy()
         display_df['最適配分予算'] = display_df['最適配分予算'].apply(lambda x: f"¥{x:,.0f}")
+        display_df['最低予算制約'] = display_df['最低予算制約'].apply(lambda x: f"¥{x:,.0f}")
         display_df['予算比率'] = display_df['予算比率'].apply(lambda x: f"{x:.1%}")
         display_df['予測成果'] = display_df['予測成果'].apply(lambda x: f"{x:,.1f}")
         
         st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # 制約の説明
+        st.info("💡 **最低予算制約**: 各媒体の過去データから0円を除いた下位3つの平均金額。すべての媒体でこの金額以上が配分されます。")
         
         # サマリー
         col1, col2, col3 = st.columns(3)
@@ -833,6 +859,28 @@ elif page == "🎯 投資費用最適化":
             st.metric("配分媒体数", len(channels))
         with col3:
             st.metric("総予算", f"¥{total_budget:,.0f}")
+        
+        # 制約充足の確認
+        st.subheader("制約充足の確認")
+        constraint_check = []
+        for i, ch in enumerate(channels):
+            min_constraint = model_params[ch]['min_spend']
+            actual_budget = optimal_budgets[i]
+            is_satisfied = actual_budget >= min_constraint
+            constraint_check.append({
+                '媒体': ch,
+                '最低予算制約': f"¥{min_constraint:,.0f}",
+                '配分予算': f"¥{actual_budget:,.0f}",
+                '制約充足': '✅' if is_satisfied else '❌'
+            })
+        
+        check_df = pd.DataFrame(constraint_check)
+        st.dataframe(check_df, use_container_width=True, hide_index=True)
+        
+        if all([c['制約充足'] == '✅' for c in constraint_check]):
+            st.success("✅ すべての媒体で最低予算制約を満たしています")
+        else:
+            st.warning("⚠️ 一部の媒体で最低予算制約を満たしていません。総予算を増やすか、優先媒体の設定を調整してください。")
 
 elif page == "🔍 事前効果検証(前半)":
     st.markdown('<div class="main-header">事前効果検証(前半)</div>', unsafe_allow_html=True)
