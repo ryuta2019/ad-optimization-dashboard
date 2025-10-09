@@ -1108,6 +1108,7 @@ elif page == "🔍 事前効果検証(前半)":
     with col1:
         st.markdown("#### 🤖 シナリオ1: システム提案（最適化案）")
         for ch in comparison_channels:
+            default_ratio = round(1.0 / len(comparison_channels), 2)
             ratio = st.number_input(
                 f"{ch} の配分比率",
                 min_value=0.0,
@@ -1126,6 +1127,7 @@ elif page == "🔍 事前効果検証(前半)":
     with col2:
         st.markdown("#### 👤 シナリオ2: 現場担当者提案")
         for ch in comparison_channels:
+            default_ratio = round(1.0 / len(comparison_channels), 2)
             ratio = st.number_input(
                 f"{ch} の配分比率",
                 min_value=0.0,
