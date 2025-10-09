@@ -534,7 +534,7 @@ if page == "📈 現状把握":
     with st.expander("📝 一括設定", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            bulk_start = st.date_input("学習期間(開始)", value=pd.to_datetime("2024-01-01"), key="bulk_start")
+            bulk_start = st.date_input("学習期間(開始)", value=pd.to_datetime("2025-05-01"), key="bulk_start")
         with col2:
             bulk_end = st.date_input("学習期間(終了)", value=pd.to_datetime("2025-09-30"), key="bulk_end")
         with col3:
@@ -561,7 +561,7 @@ if page == "📈 現状把握":
             with col1:
                 start_date = st.date_input(
                     "学習期間(開始)",
-                    value=st.session_state.get(f"status_{channel}_start", pd.to_datetime("2024-01-01")),
+                    value=st.session_state.get(f"status_{channel}_start", pd.to_datetime("2025-05-01")),
                     key=f"status_{channel}_start"
                 )
             
@@ -697,7 +697,7 @@ elif page == "🎯 投資費用最適化":
             with col1:
                 start_date = st.date_input(
                     "学習期間(開始)",
-                    value=pd.to_datetime("2024-01-01"),
+                    value=pd.to_datetime("2025-05-01"),
                     key=f"opt_{channel}_start"
                 )
             
@@ -766,7 +766,10 @@ elif page == "🎯 投資費用最適化":
         with col2:
             priority_ratio = st.slider(
                 "優先媒体への配分比率",
-                0.0, 1.0, 0.70, 0.0001,
+                min_value=0.0,# 最小値  
+                max_value=1.0,# 最大値
+                value=0.700,# 初期値  
+                step=0.001, 
                 key="opt_priority_ratio"
             )
     
