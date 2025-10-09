@@ -770,7 +770,7 @@ elif page == "🎯 投資費用最適化":
                 max_value=1.0,# 最大値
                 value=0.700,# 初期値  
                 step=0.001,
-                format="%.3f" 
+                format="%.3f", 
                 key="opt_priority_ratio"
             )
     
