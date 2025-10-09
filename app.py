@@ -62,6 +62,8 @@ if 'combined_df' not in st.session_state:
     st.session_state.combined_df = None
 if 'optimization_models' not in st.session_state:
     st.session_state.optimization_models = {}
+if 'prophet_scenarios' not in st.session_state:
+    st.session_state.prophet_scenarios = {}
 
 # ========================================
 # ヘルパー関数群（重複なし・1回のみ定義）
@@ -343,22 +345,18 @@ def train_optimization_models(df, config):
         y_data = filtered_df[cfg['target_variable']].values
         X_gam = filtered_df[['total_spend']]
         
-        # ★★★ 新機能: 0円を除外した下位3つの平均を最低予算として設定 ★★★
+        # 0円を除外した下位3つの平均を最低予算として設定
         non_zero_spends = filtered_df[filtered_df['total_spend'] > 0]['total_spend'].values
         
         if len(non_zero_spends) >= 3:
-            # 下位3つの平均を計算
             sorted_spends = np.sort(non_zero_spends)
             bottom_3_avg = np.mean(sorted_spends[:3])
             min_budget_constraint = bottom_3_avg
         elif len(non_zero_spends) > 0:
-            # データが3件未満の場合は最小値を使用
             min_budget_constraint = np.min(non_zero_spends)
         else:
-            # 0円しかない場合は最小値として1000円を設定
             min_budget_constraint = 1000
         
-        # 最低でも1000円は確保
         min_budget_constraint = max(min_budget_constraint, 1000)
         
         try:
@@ -433,9 +431,8 @@ def train_models_with_uncertainty(df, config):
                     'trace': trace
                 }
             elif model_type == 'gam':
-                # GAMはブートストラップで信頼区間を計算
                 spend_range = np.linspace(X_gam.values.min(), X_gam.values.max(), 100)
-                n_bootstraps = 200  # Streamlit用に少なめに設定
+                n_bootstraps = 200
                 bootstrap_preds = []
                 
                 progress = st.progress(0, text=f"{channel_name}: ブートストラップ中...")
@@ -473,7 +470,6 @@ def simulate_scenarios(trained_models, scenario1_ratios, scenario2_ratios, total
     """2つのシナリオをモンテカルロシミュレーションで比較"""
     channels = list(trained_models.keys())
     
-    # 比率の正規化
     def normalize_ratios(ratios):
         total_ratio = sum(ratios.get(ch, 0) for ch in channels)
         if total_ratio > 0 and not np.isclose(total_ratio, 1.0):
@@ -521,7 +517,6 @@ def simulate_scenarios(trained_models, scenario1_ratios, scenario2_ratios, total
                 spend_range = params['spend_range']
                 intervals = params['intervals']
                 
-                # GAMの不確実性をサンプリング
                 for budget, total in [(s1_budget, s1_total), (s2_budget, s2_total)]:
                     idx = np.argmin(np.abs(spend_range - budget))
                     mean_pred = gam_model.predict(np.array([[budget]]))[0]
@@ -539,6 +534,8 @@ def simulate_scenarios(trained_models, scenario1_ratios, scenario2_ratios, total
     progress_bar.empty()
     
     return np.array(s1_revenues), np.array(s2_revenues)
+
+def optimize_budget_allocation(model_params, total_budget, priority_channels, priority_ratio, n_starts):
     """予算配分最適化（マルチスタート法）"""
     channels = list(model_params.keys())
     n_channels = len(channels)
@@ -598,7 +595,7 @@ def simulate_scenarios(trained_models, scenario1_ratios, scenario2_ratios, total
     return best_result, channels
 
 # ========================================
-# サイドバー（1回のみ定義）
+# サイドバー
 # ========================================
 st.sidebar.title("📊 広告最適化ツール")
 
@@ -655,7 +652,6 @@ if page == "📈 現状把握":
     
     st.markdown('<div class="info-box">💡 各媒体ごとに学習期間や目的変数を個別に設定して、パフォーマンスを確認できます</div>', unsafe_allow_html=True)
     
-    # 媒体選択
     selected_channels = st.multiselect(
         "分析する媒体を選択",
         available_channels,
@@ -669,7 +665,6 @@ if page == "📈 現状把握":
     
     st.subheader("媒体別パラメータ設定")
     
-    # 一括設定
     with st.expander("📝 一括設定", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -691,7 +686,6 @@ if page == "📈 現状把握":
             st.success("設定を全媒体に適用しました!")
             st.rerun()
     
-    # 各媒体の設定
     config = {}
     for channel in selected_channels:
         with st.expander(f"📌 {channel}", expanded=False):
@@ -733,7 +727,6 @@ if page == "📈 現状把握":
                 'model_type': 'hill' if model_type == "Hill Model" else 'linear'
             }
     
-    # 分析実行
     if st.button("全媒体の分析を実行", type="primary", key="run_analysis"):
         st.session_state.all_channel_results = []
         st.session_state.trained_models = {}
@@ -760,7 +753,6 @@ if page == "📈 現状把握":
         st.success("✅ 全媒体の分析が完了しました!")
         st.rerun()
     
-    # 結果表示
     if st.session_state.trained_models:
         avg_r2 = np.mean([v['r2'] for v in st.session_state.trained_models.values()])
         col1, col2, col3 = st.columns(3)
@@ -785,7 +777,6 @@ if page == "📈 現状把握":
                 else:
                     st.info("この媒体の分析結果がありません")
         
-        # 全媒体比較グラフ
         if st.session_state.all_channel_results:
             st.subheader("全媒体比較(Hill関数曲線)")
             st.markdown('<div class="info-box">💡 各媒体のHill関数を同一空間にプロットし、費用対効果を一目で比較できます</div>', unsafe_allow_html=True)
@@ -811,7 +802,6 @@ elif page == "🎯 投資費用最適化":
     
     st.markdown('<div class="info-box">💡 Hill/Linear/GAMモデルに対応した予算配分最適化を行います</div>', unsafe_allow_html=True)
     
-    # 最適化用の媒体選択と設定
     st.subheader("最適化対象媒体の選択と設定")
     
     opt_channels = st.multiselect(
@@ -825,7 +815,6 @@ elif page == "🎯 投資費用最適化":
         st.warning("最適化対象の媒体を選択してください")
         st.stop()
     
-    # 各媒体のモデル設定
     st.subheader("各媒体のモデル設定")
     opt_config = {}
     
@@ -871,7 +860,6 @@ elif page == "🎯 投資費用最適化":
                 'model_type': model_map[model_type]
             }
     
-    # 最適化パラメータ
     st.subheader("最適化パラメータ")
     col1, col2 = st.columns(2)
     
@@ -893,7 +881,6 @@ elif page == "🎯 投資費用最適化":
             key="opt_nstarts"
         )
     
-    # 優先媒体設定
     with st.expander("🎯 優先媒体設定（オプション）", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
@@ -909,7 +896,6 @@ elif page == "🎯 投資費用最適化":
                 key="opt_priority_ratio"
             )
     
-    # 最適化実行
     if st.button("最適配分を計算", type="primary", key="run_optimization"):
         with st.spinner("モデル学習中..."):
             model_params = train_optimization_models(df, opt_config)
@@ -941,7 +927,6 @@ elif page == "🎯 投資費用最適化":
         else:
             st.error("最適化に失敗しました。パラメータを調整してください。")
     
-    # 結果表示
     if st.session_state.optimization_result:
         st.subheader("最適予算配分結果")
         
@@ -950,7 +935,6 @@ elif page == "🎯 投資費用最適化":
         channels = result_data['channels']
         model_params = result_data['model_params']
         
-        # 予測成果を計算
         predicted_revenues = []
         for i, ch in enumerate(channels):
             budget = optimal_budgets[i]
@@ -978,7 +962,6 @@ elif page == "🎯 投資費用最適化":
         result_df = result_df.sort_values('最適配分予算', ascending=False).reset_index(drop=True)
         result_df['順位'] = range(len(result_df))
         
-        # フォーマット
         display_df = result_df.copy()
         display_df['最適配分予算'] = display_df['最適配分予算'].apply(lambda x: f"¥{x:,.0f}")
         display_df['最低予算制約'] = display_df['最低予算制約'].apply(lambda x: f"¥{x:,.0f}")
@@ -987,10 +970,8 @@ elif page == "🎯 投資費用最適化":
         
         st.dataframe(display_df, use_container_width=True, hide_index=True)
         
-        # 制約の説明
         st.info("💡 **最低予算制約**: 各媒体の過去データから0円を除いた下位3つの平均金額。すべての媒体でこの金額以上が配分されます。")
         
-        # サマリー
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("予測合計成果", f"{result_data['total_revenue']:,.0f}")
@@ -999,7 +980,6 @@ elif page == "🎯 投資費用最適化":
         with col3:
             st.metric("総予算", f"¥{total_budget:,.0f}")
         
-        # 制約充足の確認
         st.subheader("制約充足の確認")
         constraint_check = []
         for i, ch in enumerate(channels):
@@ -1027,7 +1007,6 @@ elif page == "🔍 事前効果検証(前半)":
     
     st.markdown('<div class="info-box">💡 2つの予算配分案をモンテカルロシミュレーションで比較し、どちらが優れているか確率的に検証します</div>', unsafe_allow_html=True)
     
-    # 媒体選択
     st.subheader("比較対象媒体の選択")
     comparison_channels = st.multiselect(
         "シミュレーション対象の媒体を選択",
@@ -1040,7 +1019,6 @@ elif page == "🔍 事前効果検証(前半)":
         st.warning("媒体を選択してください")
         st.stop()
     
-    # 各媒体のモデル設定
     st.subheader("各媒体のモデル設定")
     comparison_config = {}
     
@@ -1086,7 +1064,6 @@ elif page == "🔍 事前効果検証(前半)":
                 'model_type': model_map[model_type]
             }
     
-    # 総予算設定
     st.subheader("総予算設定")
     total_budget = st.number_input(
         "週当たりの総予算 (円)",
@@ -1097,7 +1074,6 @@ elif page == "🔍 事前効果検証(前半)":
         key="comparison_budget"
     )
     
-    # シナリオ入力
     st.subheader("2つのシナリオの予算配分")
     
     col1, col2 = st.columns(2)
@@ -1143,7 +1119,6 @@ elif page == "🔍 事前効果検証(前半)":
         if not np.isclose(s2_total, 1.0):
             st.warning(f"⚠️ 合計: {s2_total:.2%} (100%になるよう調整されます)")
     
-    # シミュレーション設定
     st.subheader("シミュレーション設定")
     n_samples = st.slider(
         "モンテカルロシミュレーション試行回数",
@@ -1154,9 +1129,7 @@ elif page == "🔍 事前効果検証(前半)":
         key="n_samples"
     )
     
-    # 実行ボタン
     if st.button("シナリオ比較分析を実行", type="primary", key="run_comparison"):
-        # モデル学習
         with st.spinner("モデル学習中（不確実性情報を抽出）..."):
             trained_models = train_models_with_uncertainty(df, comparison_config)
         
@@ -1166,7 +1139,6 @@ elif page == "🔍 事前効果検証(前半)":
         
         st.success(f"✅ {len(trained_models)}媒体のモデル学習完了")
         
-        # シミュレーション実行
         with st.spinner(f"{n_samples}回のシミュレーション実行中..."):
             s1_revenues, s2_revenues = simulate_scenarios(
                 trained_models,
@@ -1178,7 +1150,6 @@ elif page == "🔍 事前効果検証(前半)":
         
         st.success("✅ シミュレーションが完了しました!")
         
-        # 結果をセッションステートに保存
         st.session_state.comparison_result = {
             's1_revenues': s1_revenues,
             's2_revenues': s2_revenues,
@@ -1190,20 +1161,17 @@ elif page == "🔍 事前効果検証(前半)":
         
         st.rerun()
     
-    # 結果表示
     if 'comparison_result' in st.session_state:
         result = st.session_state.comparison_result
         s1_revenues = result['s1_revenues']
         s2_revenues = result['s2_revenues']
         
-        # 統計量計算
         s1_mean = np.mean(s1_revenues)
         s1_median = np.median(s1_revenues)
         s2_mean = np.mean(s2_revenues)
         s2_median = np.median(s2_revenues)
         prob_s1_wins = np.mean(s1_revenues > s2_revenues)
         
-        # サマリー表示
         st.subheader("シミュレーション結果サマリー")
         
         summary_df = pd.DataFrame({
@@ -1218,7 +1186,6 @@ elif page == "🔍 事前効果検証(前半)":
         
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
         
-        # 確率表示
         st.markdown(f"""
         <div style='text-align: center; padding: 2rem; background: white; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin: 2rem 0;'>
             <div style='font-size: 1.2rem; color: #2c3e50; margin-bottom: 1rem;'>
@@ -1233,7 +1200,6 @@ elif page == "🔍 事前効果検証(前半)":
         </div>
         """, unsafe_allow_html=True)
         
-        # ヒストグラム
         st.subheader("予測成果の確率分布")
         
         fig = go.Figure()
@@ -1270,7 +1236,6 @@ elif page == "🔍 事前効果検証(前半)":
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # 詳細な統計情報
         with st.expander("📊 詳細な統計情報"):
             col1, col2 = st.columns(2)
             
@@ -1292,11 +1257,435 @@ elif page == "🔍 事前効果検証(前半)":
 
 elif page == "📊 事前効果検証(後半)":
     st.markdown('<div class="main-header">事前効果検証(後半)</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">シナリオ比較 - 区間推定(モンテカルロシミュレーション)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Prophet時系列予測 - 複数シナリオ比較</div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="info-box">💡 ベイズ的シミュレーションにより、不確実性を考慮した比較が可能です</div>', unsafe_allow_html=True)
+    st.markdown('<div class="info-box">💡 Prophetモデルを使用して、複数の予算配分シナリオによる将来予測を比較できます</div>', unsafe_allow_html=True)
     
-    st.info("この機能は準備中です。")
+    # Prophet必須チェック
+    try:
+        from prophet import Prophet
+    except ImportError:
+        st.error("⚠️ Prophetライブラリがインストールされていません。`pip install prophet` を実行してください。")
+        st.stop()
+    
+    # ========================================
+    # Step 1: モデル学習設定
+    # ========================================
+    st.subheader("📚 Step 1: モデル学習設定")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**学習期間**")
+        prophet_start_date = st.date_input(
+            "学習開始日",
+            value=pd.to_datetime("2023-01-01"),
+            key="prophet_start_date"
+        )
+        prophet_end_date = st.date_input(
+            "学習終了日",
+            value=pd.to_datetime("2025-09-29"),
+            key="prophet_end_date"
+        )
+    
+    with col2:
+        st.markdown("**目的変数・媒体選択**")
+        available_targets = [col for col in df.columns if '応募' in col or 'コンバージョン' in col]
+        prophet_target_var = st.selectbox(
+            "目的変数",
+            available_targets,
+            key="prophet_target_var"
+        )
+        
+        prophet_training_channels = st.multiselect(
+            "学習に使用する媒体",
+            available_channels,
+            default=available_channels[:9] if len(available_channels) >= 9 else available_channels,
+            key="prophet_training_channels",
+            help="複数媒体のデータを合算して学習します"
+        )
+    
+    if not prophet_training_channels:
+        st.warning("学習に使用する媒体を選択してください")
+        st.stop()
+    
+    # ========================================
+    # Step 2: 予測設定
+    # ========================================
+    st.subheader("🔮 Step 2: 予測設定")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        n_weeks_forecast = st.number_input(
+            "何週先まで予測しますか？",
+            min_value=1,
+            max_value=12,
+            value=2,
+            key="n_weeks_forecast"
+        )
+        
+        forecast_start_date = st.date_input(
+            "予測開始日（通常は学習終了日の翌週）",
+            value=pd.to_datetime("2025-10-06"),
+            key="forecast_start_date"
+        )
+    
+    with col2:
+        st.info(f"📅 予測期間: {n_weeks_forecast}週間\n\n予測対象週:\n" + 
+                "\n".join([f"- 第{i+1}週: {(pd.to_datetime(forecast_start_date) + pd.Timedelta(days=7*i)).strftime('%Y-%m-%d')}" 
+                          for i in range(n_weeks_forecast)]))
+    
+    # ========================================
+    # Step 3: シナリオ設定
+    # ========================================
+    st.subheader("📝 Step 3: シナリオ設定")
+    
+    st.markdown("複数の予算配分案を比較するために、シナリオを作成してください。")
+    
+    # シナリオ管理
+    col1, col2, col3 = st.columns([3, 1, 1])
+    
+    with col1:
+        new_scenario_name = st.text_input(
+            "新しいシナリオ名",
+            placeholder="例: ベースライン案、積極投資案",
+            key="new_scenario_name"
+        )
+    
+    with col2:
+        if st.button("シナリオ追加", key="add_scenario"):
+            if new_scenario_name and new_scenario_name not in st.session_state.prophet_scenarios:
+                # デフォルトの予算テーブルを作成
+                default_budget = 1000000
+                budget_data = []
+                for i in range(n_weeks_forecast):
+                    week_date = (pd.to_datetime(forecast_start_date) + pd.Timedelta(days=7*i)).strftime('%Y-%m-%d')
+                    for channel in prophet_training_channels:
+                        budget_data.append({
+                            '週': f"第{i+1}週 ({week_date})",
+                            '媒体': channel,
+                            '予算': default_budget
+                        })
+                
+                st.session_state.prophet_scenarios[new_scenario_name] = pd.DataFrame(budget_data)
+                st.success(f"✅ シナリオ「{new_scenario_name}」を追加しました")
+                st.rerun()
+            elif new_scenario_name in st.session_state.prophet_scenarios:
+                st.warning("同名のシナリオが既に存在します")
+            else:
+                st.warning("シナリオ名を入力してください")
+    
+    with col3:
+        if st.session_state.prophet_scenarios:
+            scenario_to_delete = st.selectbox(
+                "削除するシナリオ",
+                list(st.session_state.prophet_scenarios.keys()),
+                key="scenario_to_delete"
+            )
+            if st.button("削除", key="delete_scenario"):
+                del st.session_state.prophet_scenarios[scenario_to_delete]
+                st.success(f"シナリオ「{scenario_to_delete}」を削除しました")
+                st.rerun()
+    
+    # 各シナリオの予算設定
+    if st.session_state.prophet_scenarios:
+        st.markdown("---")
+        st.markdown("### 各シナリオの予算設定")
+        
+        for scenario_name in list(st.session_state.prophet_scenarios.keys()):
+            with st.expander(f"📊 {scenario_name}", expanded=True):
+                st.markdown(f"**{scenario_name}の予算配分**")
+                
+                # データエディタで編集可能に
+                edited_df = st.data_editor(
+                    st.session_state.prophet_scenarios[scenario_name],
+                    use_container_width=True,
+                    num_rows="fixed",
+                    key=f"editor_{scenario_name}",
+                    column_config={
+                        "週": st.column_config.TextColumn("週", disabled=True),
+                        "媒体": st.column_config.TextColumn("媒体", disabled=True),
+                        "予算": st.column_config.NumberColumn(
+                            "予算 (円)",
+                            min_value=0,
+                            max_value=50000000,
+                            step=100000,
+                            format="¥%d"
+                        )
+                    }
+                )
+                
+                # 更新を保存
+                st.session_state.prophet_scenarios[scenario_name] = edited_df
+                
+                # サマリー表示
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    total_budget = edited_df['予算'].sum()
+                    st.metric("シナリオ総予算", f"¥{total_budget:,.0f}")
+                with col2:
+                    weekly_avg = total_budget / n_weeks_forecast
+                    st.metric("週平均予算", f"¥{weekly_avg:,.0f}")
+                with col3:
+                    channel_count = edited_df['媒体'].nunique()
+                    st.metric("対象媒体数", f"{channel_count}媒体")
+    else:
+        st.info("👆 上記の「シナリオ追加」ボタンから、比較したいシナリオを追加してください")
+    
+    # ========================================
+    # Step 4: モデル学習と予測実行
+    # ========================================
+    st.markdown("---")
+    st.subheader("🚀 Step 4: 予測実行")
+    
+    if not st.session_state.prophet_scenarios:
+        st.warning("予測を実行するには、少なくとも1つのシナリオを作成してください")
+    else:
+        if st.button("モデル学習と予測を実行", type="primary", key="run_prophet"):
+            # モデル学習
+            with st.spinner("📚 Prophetモデルを学習中..."):
+                # 学習データの準備
+                df_for_training = df[df['channel'].isin(prophet_training_channels)].copy()
+                train_df = df_for_training[
+                    (df_for_training['week_start_date'] >= pd.to_datetime(prophet_start_date)) & 
+                    (df_for_training['week_start_date'] <= pd.to_datetime(prophet_end_date))
+                ].copy()
+                
+                # 週ごとに合算
+                aggregated_df = train_df.groupby('week_start_date').agg(
+                    y=(prophet_target_var, 'sum'),
+                    total_spend=('total_spend', 'sum')
+                ).reset_index()
+                
+                if len(aggregated_df) < 10:
+                    st.error("学習データが10件未満です。学習期間を延ばしてください。")
+                    st.stop()
+                
+                # Prophet用のデータ整形
+                prophet_df = aggregated_df.rename(columns={'week_start_date': 'ds'})
+                scaling_factor = 1_000_000
+                prophet_df['total_spend_scaled'] = prophet_df['total_spend'] / scaling_factor
+                prophet_df['floor'] = 0
+                cap_value = prophet_df['y'].max() * 1.2
+                prophet_df['cap'] = cap_value
+                
+                # モデル学習
+                try:
+                    model = Prophet(
+                        growth='logistic',
+                        yearly_seasonality=True,
+                        weekly_seasonality=True,
+                        daily_seasonality=False,
+                        seasonality_mode='multiplicative',
+                        changepoint_prior_scale=0.01,
+                        seasonality_prior_scale=5.0
+                    )
+                    model.add_regressor('total_spend_scaled', prior_scale=0.5, standardize=False, mode='multiplicative')
+                    model.fit(prophet_df)
+                    
+                    st.success(f"✅ モデル学習完了（学習データ: {len(aggregated_df)}週間）")
+                    
+                except Exception as e:
+                    st.error(f"モデル学習中にエラーが発生しました: {e}")
+                    st.stop()
+            
+            # 各シナリオの予測
+            with st.spinner("🔮 各シナリオの予測を実行中..."):
+                future_forecasts_by_scenario = {}
+                
+                for scenario_name, scenario_df in st.session_state.prophet_scenarios.items():
+                    # 週ごとに予算を合算
+                    overall_future_plans_agg = {}
+                    
+                    for _, row in scenario_df.iterrows():
+                        week_str = row['週']
+                        # 日付を抽出
+                        date_str = week_str.split('(')[1].split(')')[0]
+                        spend = row['予算']
+                        
+                        if date_str in overall_future_plans_agg:
+                            overall_future_plans_agg[date_str] += spend
+                        else:
+                            overall_future_plans_agg[date_str] = spend
+                    
+                    # 予測用データフレームの作成
+                    future_df = pd.DataFrame([
+                        {'ds': date, 'total_spend': spend}
+                        for date, spend in sorted(overall_future_plans_agg.items())
+                    ])
+                    future_df['ds'] = pd.to_datetime(future_df['ds'])
+                    future_df['total_spend_scaled'] = future_df['total_spend'] / scaling_factor
+                    future_df['floor'] = 0
+                    future_df['cap'] = cap_value
+                    
+                    # 予測実行
+                    forecast = model.predict(future_df)
+                    future_forecasts_by_scenario[scenario_name] = forecast
+                
+                st.success(f"✅ {len(future_forecasts_by_scenario)}シナリオの予測完了")
+            
+            # 結果の可視化
+            st.markdown("---")
+            st.subheader("📈 予測結果")
+            
+            # 過去のフィット
+            past_forecast = model.predict(prophet_df[['ds', 'total_spend_scaled', 'floor', 'cap']])
+            
+            # グラフ作成
+            fig = go.Figure()
+            
+            # 過去の実績
+            fig.add_trace(go.Scatter(
+                x=prophet_df['ds'],
+                y=prophet_df['y'],
+                mode='lines+markers',
+                name='過去の実績値 (合算)',
+                line=dict(color='black', width=2),
+                marker=dict(size=6)
+            ))
+            
+            # モデルフィット
+            fig.add_trace(go.Scatter(
+                x=past_forecast['ds'],
+                y=past_forecast['yhat'],
+                mode='lines',
+                name='モデルフィット',
+                line=dict(color='royalblue', width=2, dash='dot')
+            ))
+            
+            # 信頼区間
+            fig.add_trace(go.Scatter(
+                x=pd.concat([past_forecast['ds'], past_forecast['ds'][::-1]]),
+                y=pd.concat([past_forecast['yhat_upper'], past_forecast['yhat_lower'][::-1]]),
+                fill='toself',
+                fillcolor='rgba(65,105,225,0.2)',
+                line=dict(color='rgba(255,255,255,0)'),
+                hoverinfo="skip",
+                name='95% 信頼区間',
+                showlegend=True
+            ))
+            
+            # 各シナリオの予測
+            colors = ['red', 'green', 'purple', 'orange', 'cyan', 'magenta', 'brown', 'pink']
+            for i, (scenario_name, forecast) in enumerate(future_forecasts_by_scenario.items()):
+                color = colors[i % len(colors)]
+                fig.add_trace(go.Scatter(
+                    x=forecast['ds'],
+                    y=forecast['yhat'],
+                    mode='lines+markers',
+                    name=f'予測: {scenario_name}',
+                    line=dict(color=color, width=3),
+                    marker=dict(size=10)
+                ))
+            
+            fig.update_layout(
+                title=f'<b>全体予測: 複数シナリオによる{n_weeks_forecast}週間先の{prophet_target_var}予測</b>',
+                xaxis_title='日付',
+                yaxis_title=prophet_target_var,
+                legend_title='凡例',
+                template='plotly_white',
+                hovermode='x unified',
+                height=600
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # 予測結果の比較表
+            st.subheader("📊 シナリオ別予測結果比較")
+            
+            comparison_data = []
+            for scenario_name, forecast in future_forecasts_by_scenario.items():
+                total_predicted = forecast['yhat'].sum()
+                avg_per_week = forecast['yhat'].mean()
+                min_pred = forecast['yhat'].min()
+                max_pred = forecast['yhat'].max()
+                
+                # 予算情報
+                scenario_df = st.session_state.prophet_scenarios[scenario_name]
+                total_budget = scenario_df['予算'].sum()
+                avg_budget = total_budget / n_weeks_forecast
+                
+                comparison_data.append({
+                    'シナリオ': scenario_name,
+                    '予測合計成果': f'{total_predicted:,.0f}',
+                    '週平均予測': f'{avg_per_week:,.0f}',
+                    '最小値': f'{min_pred:,.0f}',
+                    '最大値': f'{max_pred:,.0f}',
+                    '総予算': f'¥{total_budget:,.0f}',
+                    '週平均予算': f'¥{avg_budget:,.0f}',
+                    'ROI': f'{total_predicted / total_budget:.4f}'
+                })
+            
+            comparison_df = pd.DataFrame(comparison_data)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+            
+            # ベストシナリオのハイライト
+            best_scenario_idx = comparison_df['ROI'].astype(float).idxmax()
+            best_scenario = comparison_df.loc[best_scenario_idx, 'シナリオ']
+            
+            st.success(f"🏆 **最もROIが高いシナリオ**: {best_scenario}")
+            
+            # 詳細な週別予測
+            with st.expander("📋 週別の詳細予測"):
+                for scenario_name, forecast in future_forecasts_by_scenario.items():
+                    st.markdown(f"**{scenario_name}**")
+                    
+                    weekly_detail = []
+                    for idx, row in forecast.iterrows():
+                        week_num = idx + 1
+                        date = row['ds'].strftime('%Y-%m-%d')
+                        pred = row['yhat']
+                        lower = row['yhat_lower']
+                        upper = row['yhat_upper']
+                        
+                        # 対応する予算を取得
+                        scenario_df = st.session_state.prophet_scenarios[scenario_name]
+                        budget_row = scenario_df[scenario_df['週'].str.contains(date)]
+                        budget = budget_row['予算'].sum() if not budget_row.empty else 0
+                        
+                        weekly_detail.append({
+                            '週': f'第{week_num}週',
+                            '日付': date,
+                            '予測値': f'{pred:,.0f}',
+                            '下限 (5%)': f'{lower:,.0f}',
+                            '上限 (95%)': f'{upper:,.0f}',
+                            '予算': f'¥{budget:,.0f}'
+                        })
+                    
+                    weekly_df = pd.DataFrame(weekly_detail)
+                    st.dataframe(weekly_df, use_container_width=True, hide_index=True)
+                    st.markdown("---")
+    
+    # 使い方ガイド
+    with st.expander("❓ 使い方ガイド"):
+        st.markdown("""
+        ### Prophet時系列予測機能の使い方
+        
+        **Step 1: モデル学習設定**
+        - 学習期間: 過去のデータを使ってモデルを学習する期間を設定
+        - 目的変数: 予測したい指標（応募数など）を選択
+        - 学習媒体: 複数媒体のデータを合算して学習します
+        
+        **Step 2: 予測設定**
+        - 予測週数: 何週先まで予測するか設定（1〜12週）
+        - 予測開始日: 通常は学習終了日の翌週を設定
+        
+        **Step 3: シナリオ設定**
+        - 複数の予算配分案（シナリオ）を作成
+        - 各シナリオで媒体×週の予算を設定
+        - データエディタで直接編集可能
+        
+        **Step 4: 実行と結果確認**
+        - Prophetモデルが学習され、各シナリオの予測を実行
+        - グラフで視覚的に比較
+        - ROIが最も高いシナリオを自動判定
+        
+        ### 💡 活用のコツ
+        - ベースライン案と積極投資案など、複数案を比較
+        - 信頼区間（95%）も表示されるため、不確実性も考慮可能
+        - 週別の詳細予測で、各週の成果を確認
+        """)
 
 # フッター
 st.sidebar.markdown("---")
