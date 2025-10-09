@@ -876,7 +876,7 @@ elif page == "🎯 投資費用最適化":
     with col2:
         n_starts = st.slider(
             "マルチスタート試行回数",
-            10, 3000, 1000,
+            10, 5000, 1000,
             help="多いほど精度が上がりますが時間がかかります",
             key="opt_nstarts"
         )
@@ -890,10 +890,14 @@ elif page == "🎯 投資費用最適化":
                 key="opt_priority_channels"
             )
         with col2:
-            priority_ratio = st.slider(
+            priority_ratio = st.number_input(
                 "優先媒体への配分比率",
-                0.0, 1.0, 0.70, 0.05,
-                key="opt_priority_ratio"
+                min_value=0.0,
+                max_value=1.0,
+                value=0.800,
+                step=0.0001, 
+                format="%.4f",
+                key="opt_priority_ratio" 
             )
     
     if st.button("最適配分を計算", type="primary", key="run_optimization"):
