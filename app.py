@@ -764,12 +764,13 @@ elif page == "🎯 投資費用最適化":
                 key="opt_priority_channels"
             )
         with col2:
-            priority_ratio = st.slider(
+            priority_ratio = st.number_input(
                 "優先媒体への配分比率",
                 min_value=0.0,# 最小値  
                 max_value=1.0,# 最大値
                 value=0.700,# 初期値  
-                step=0.001, 
+                step=0.001,
+                format="%.3f" 
                 key="opt_priority_ratio"
             )
     
