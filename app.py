@@ -467,7 +467,7 @@ def train_models_with_uncertainty(df, config):
     return model_results
 
 def simulate_scenarios(trained_models, scenario1_ratios, scenario2_ratios, total_budget, n_samples=5000):
-    """2つのシナリオをモンテカルロシミュレーションで比較"""
+    """2つのシナリオをモンテカルロシミュレーションで比較（媒体別詳細付き）"""
     channels = list(trained_models.keys())
     
     def normalize_ratios(ratios):
@@ -481,6 +481,11 @@ def simulate_scenarios(trained_models, scenario1_ratios, scenario2_ratios, total
     
     s1_revenues = []
     s2_revenues = []
+    
+    # ★★★ 媒体別の結果を保存する辞書を追加 ★★★
+    s1_channel_revenues = {ch: [] for ch in channels}
+    s2_channel_revenues = {ch: [] for ch in channels}
+    # ★★★ ここまで追加 ★★★
     
     progress_bar = st.progress(0, text=f"{n_samples}回のシミュレーション実行中...")
     
@@ -496,44 +501,60 @@ def simulate_scenarios(trained_models, scenario1_ratios, scenario2_ratios, total
             s1_budget = scenario1_ratios.get(ch, 0) * total_budget
             s2_budget = scenario2_ratios.get(ch, 0) * total_budget
             
+            # ★★★ 媒体別の予測値を計算して保存 ★★★
+            s1_revenue_ch = 0
+            s2_revenue_ch = 0
+            
             if params['model_type'] == 'hill':
                 trace = params['trace']
                 posterior_samples = az.extract(trace, num_samples=1)
                 vmax = posterior_samples['Vmax'].item()
                 ec50 = posterior_samples['EC50'].item()
-                s1_total += max(0, vmax * s1_budget / (ec50 + s1_budget + 1e-9))
-                s2_total += max(0, vmax * s2_budget / (ec50 + s2_budget + 1e-9))
+                s1_revenue_ch = max(0, vmax * s1_budget / (ec50 + s1_budget + 1e-9))
+                s2_revenue_ch = max(0, vmax * s2_budget / (ec50 + s2_budget + 1e-9))
                 
             elif params['model_type'] == 'linear':
                 trace = params['trace']
                 posterior_samples = az.extract(trace, num_samples=1)
                 alpha = posterior_samples['alpha'].item()
                 beta = posterior_samples['beta'].item()
-                s1_total += max(0, alpha + beta * s1_budget)
-                s2_total += max(0, alpha + beta * s2_budget)
+                s1_revenue_ch = max(0, alpha + beta * s1_budget)
+                s2_revenue_ch = max(0, alpha + beta * s2_budget)
                 
             elif params['model_type'] == 'gam':
                 gam_model = params['gam_model']
                 spend_range = params['spend_range']
                 intervals = params['intervals']
                 
-                for budget, total in [(s1_budget, s1_total), (s2_budget, s2_total)]:
+                for budget in [s1_budget, s2_budget]:
                     idx = np.argmin(np.abs(spend_range - budget))
                     mean_pred = gam_model.predict(np.array([[budget]]))[0]
                     lower, upper = intervals[idx]
                     std_dev = (upper - lower) / 4.0
                     sample = np.random.normal(mean_pred, max(std_dev, 1e-9))
                     if budget == s1_budget:
-                        s1_total += max(0, sample)
+                        s1_revenue_ch = max(0, sample)
                     else:
-                        s2_total += max(0, sample)
+                        s2_revenue_ch = max(0, sample)
+            
+            # 媒体別の結果を保存
+            s1_channel_revenues[ch].append(s1_revenue_ch)
+            s2_channel_revenues[ch].append(s2_revenue_ch)
+            
+            # 全体の合計に加算
+            s1_total += s1_revenue_ch
+            s2_total += s2_revenue_ch
+            # ★★★ ここまで修正 ★★★
         
         s1_revenues.append(s1_total)
         s2_revenues.append(s2_total)
     
     progress_bar.empty()
     
-    return np.array(s1_revenues), np.array(s2_revenues)
+    # ★★★ 媒体別結果も返す ★★★
+    return (np.array(s1_revenues), np.array(s2_revenues), 
+            {ch: np.array(vals) for ch, vals in s1_channel_revenues.items()},
+            {ch: np.array(vals) for ch, vals in s2_channel_revenues.items()})
 
 def optimize_budget_allocation(model_params, total_budget, priority_channels, priority_ratio, n_starts):
     """予算配分最適化（マルチスタート法）"""
@@ -1152,7 +1173,8 @@ elif page == "🔍 事前効果検証(前半)":
         st.success(f"✅ {len(trained_models)}媒体のモデル学習完了")
         
         with st.spinner(f"{n_samples}回のシミュレーション実行中..."):
-            s1_revenues, s2_revenues = simulate_scenarios(
+            # ★★★ 媒体別結果も受け取るように修正 ★★★
+            s1_revenues, s2_revenues, s1_channel_revenues, s2_channel_revenues = simulate_scenarios(
                 trained_models,
                 scenario1_ratios,
                 scenario2_ratios,
@@ -1165,10 +1187,13 @@ elif page == "🔍 事前効果検証(前半)":
         st.session_state.comparison_result = {
             's1_revenues': s1_revenues,
             's2_revenues': s2_revenues,
+            's1_channel_revenues': s1_channel_revenues,  # ★★★ 追加 ★★★
+            's2_channel_revenues': s2_channel_revenues,  # ★★★ 追加 ★★★
             's1_ratios': scenario1_ratios,
             's2_ratios': scenario2_ratios,
             'total_budget': total_budget,
-            'n_samples': n_samples
+            'n_samples': n_samples,
+            'channels': list(trained_models.keys())  # ★★★ 追加 ★★★
         }
         
         st.rerun()
@@ -1266,6 +1291,106 @@ elif page == "🔍 事前効果検証(前半)":
                 st.write(f"- 標準偏差: {np.std(s2_revenues):,.0f}")
                 st.write(f"- 5%点: {np.percentile(s2_revenues, 5):,.0f}")
                 st.write(f"- 95%点: {np.percentile(s2_revenues, 95):,.0f}")
+            # ★★★ 媒体別の詳細分析を追加 ★★★
+        st.subheader("📊 媒体別の詳細分析")
+        
+        channels = result.get('channels', [])
+        s1_channel_revenues = result.get('s1_channel_revenues', {})
+        s2_channel_revenues = result.get('s2_channel_revenues', {})
+        
+        # 媒体別の比較表
+        channel_comparison_data = []
+        for ch in channels:
+            s1_ch_mean = np.mean(s1_channel_revenues[ch])
+            s2_ch_mean = np.mean(s2_channel_revenues[ch])
+            s1_ch_median = np.median(s1_channel_revenues[ch])
+            s2_ch_median = np.median(s2_channel_revenues[ch])
+            
+            s1_budget = result['s1_ratios'].get(ch, 0) * result['total_budget']
+            s2_budget = result['s2_ratios'].get(ch, 0) * result['total_budget']
+            
+            diff_mean = s1_ch_mean - s2_ch_mean
+            diff_pct = (diff_mean / s2_ch_mean * 100) if s2_ch_mean > 0 else 0
+            
+            prob_s1_wins = np.mean(s1_channel_revenues[ch] > s2_channel_revenues[ch])
+            
+            channel_comparison_data.append({
+                '媒体': ch,
+                'S1予算': f'¥{s1_budget:,.0f}',
+                'S2予算': f'¥{s2_budget:,.0f}',
+                'S1予測成果(平均)': f'{s1_ch_mean:,.1f}',
+                'S2予測成果(平均)': f'{s2_ch_mean:,.1f}',
+                '差分(平均)': f'{diff_mean:+,.1f} ({diff_pct:+.1f}%)',
+                'S1が優れている確率': f'{prob_s1_wins:.1%}'
+            })
+        
+        channel_comp_df = pd.DataFrame(channel_comparison_data)
+        st.dataframe(channel_comp_df, use_container_width=True, hide_index=True)
+        
+        # 媒体別の分布グラフ
+        st.subheader("📈 媒体別の予測成果分布")
+        
+        # タブで媒体を切り替え
+        channel_tabs = st.tabs(channels)
+        
+        for i, tab in enumerate(channel_tabs):
+            with tab:
+                ch = channels[i]
+                s1_ch_data = s1_channel_revenues[ch]
+                s2_ch_data = s2_channel_revenues[ch]
+                
+                fig = go.Figure()
+                
+                fig.add_trace(go.Histogram(
+                    x=s1_ch_data,
+                    name=f'シナリオ1 (平均: {np.mean(s1_ch_data):,.0f})',
+                    opacity=0.7,
+                    marker_color='#3498db',
+                    nbinsx=50
+                ))
+                
+                fig.add_trace(go.Histogram(
+                    x=s2_ch_data,
+                    name=f'シナリオ2 (平均: {np.mean(s2_ch_data):,.0f})',
+                    opacity=0.7,
+                    marker_color='#e67e22',
+                    nbinsx=50
+                ))
+                
+                fig.add_vline(x=np.mean(s1_ch_data), line_dash="dash", line_color="#3498db",
+                             annotation_text="S1平均", annotation_position="top")
+                fig.add_vline(x=np.mean(s2_ch_data), line_dash="dash", line_color="#e67e22",
+                             annotation_text="S2平均", annotation_position="top")
+                
+                fig.update_layout(
+                    title=f'{ch}の予測成果分布',
+                    xaxis_title='予測成果',
+                    yaxis_title='頻度',
+                    barmode='overlay',
+                    template='plotly_white',
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # 媒体別の統計情報
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**シナリオ1の統計量**")
+                    st.write(f"- 平均: {np.mean(s1_ch_data):,.1f}")
+                    st.write(f"- 中央値: {np.median(s1_ch_data):,.1f}")
+                    st.write(f"- 標準偏差: {np.std(s1_ch_data):,.1f}")
+                    st.write(f"- 5%点: {np.percentile(s1_ch_data, 5):,.1f}")
+                    st.write(f"- 95%点: {np.percentile(s1_ch_data, 95):,.1f}")
+                
+                with col2:
+                    st.write("**シナリオ2の統計量**")
+                    st.write(f"- 平均: {np.mean(s2_ch_data):,.1f}")
+                    st.write(f"- 中央値: {np.median(s2_ch_data):,.1f}")
+                    st.write(f"- 標準偏差: {np.std(s2_ch_data):,.1f}")
+                    st.write(f"- 5%点: {np.percentile(s2_ch_data, 5):,.1f}")
+                    st.write(f"- 95%点: {np.percentile(s2_ch_data, 95):,.1f}")
 
 elif page == "📊 事前効果検証(後半)":
     st.markdown('<div class="main-header">事前効果検証(後半)</div>', unsafe_allow_html=True)
