@@ -565,6 +565,14 @@ def optimize_budget_allocation(model_params, total_budget, priority_channels, pr
     priority_indices = [i for i, ch in enumerate(channels) if ch in priority_channels]
     cons2 = {'type': 'eq', 'fun': lambda budgets: np.sum(budgets[priority_indices]) - total_budget * priority_ratio}
     constraints = [cons1, cons2] if priority_channels else [cons1]
+
+    # ★★★ キャリアインデックスの予算上限制約を追加 ★★★
+    if 'キャリアインデックス' in channels:
+        career_index_idx = channels.index('キャリアインデックス')
+        career_index_budget_limit = 10000000
+        cons_career_index = {'type': 'ineq', 'fun': lambda budgets: career_index_budget_limit - budgets[career_index_idx]}
+        constraints.append(cons_career_index)
+        st.info(f"🔒 制約を追加: キャリアインデックスの予算 ≤ ¥{career_index_budget_limit:,.0f}")
     
     bounds = []
     for channel in channels:
