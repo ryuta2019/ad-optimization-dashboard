@@ -10,7 +10,126 @@ from pygam import LinearGAM, s
 from scipy.optimize import minimize
 from sklearn.metrics import r2_score
 import warnings
+import hashlib
 warnings.filterwarnings('ignore')
+
+# ========================================
+# 認証機能
+# ========================================
+
+def hash_password(password):
+    """パスワードをSHA-256でハッシュ化"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def check_login(username, password):
+    """ログイン認証チェック"""
+    # 指定されたユーザー情報
+    default_users = {
+        "npochamu": hash_password("kimimaro")
+    }
+    
+    # st.secretsが利用可能な場合はそちらを優先
+    try:
+        users = st.secrets.get("auth", {}).get("users", default_users)
+    except:
+        users = default_users
+    
+    hashed_input = hash_password(password)
+    
+    if username in users and users[username] == hashed_input:
+        return True
+    return False
+
+def login_form():
+    """ログインフォームを表示"""
+    st.markdown("""
+    <style>
+    .login-container {
+        max-width: 400px;
+        margin: 100px auto;
+        padding: 2rem;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .login-header {
+        text-align: center;
+        font-size: 2rem;
+        font-weight: bold;
+        color: #2c3e50;
+        margin-bottom: 2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown('<div class="login-header">🔐 ログイン</div>', unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            username = st.text_input("ユーザー名", key="login_username")
+            password = st.text_input("パスワード", type="password", key="login_password")
+            submit = st.form_submit_button("ログイン", use_container_width=True)
+            
+            if submit:
+                if username and password:
+                    if check_login(username, password):
+                        st.session_state.authenticated = True
+                        st.session_state.username = username
+                        st.success("✅ ログインに成功しました！")
+                        st.rerun()
+                    else:
+                        st.error("❌ ユーザー名またはパスワードが正しくありません")
+                else:
+                    st.warning("ユーザー名とパスワードを入力してください")
+        
+        with st.expander("💡 ログイン情報"):
+            st.info("""
+            **アカウント情報:**
+            - ユーザー名: `npochamu`
+            - パスワード: `kimimaro`
+            
+            **追加ユーザーを設定する場合:**
+            `.streamlit/secrets.toml` でユーザーを追加できます
+            ```toml
+            [auth]
+            [auth.users]
+            npochamu = "hashed_password_here"
+            user2 = "hashed_password_here"
+            ```
+            """)
+
+
+def logout_button():
+    """ログアウトボタン"""
+    if st.sidebar.button("🚪 ログアウト", key="logout_btn"):
+        st.session_state.authenticated = False
+        st.session_state.username = None
+        st.rerun()
+
+# ========================================
+# 認証状態の初期化
+# ========================================
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'username' not in st.session_state:
+    st.session_state.username = None
+
+# ログインチェック
+if not st.session_state.authenticated:
+    # ページ設定（ログイン画面用）
+    st.set_page_config(
+        page_title="ログイン - 広告最適化ダッシュボード",
+        page_icon="🔐",
+        layout="centered"
+    )
+    login_form()
+    st.stop()
+
+# ========================================
+# メインアプリケーション（ログイン後）
+# =======================================
 
 # ページ設定
 st.set_page_config(
