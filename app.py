@@ -83,22 +83,6 @@ def login_form():
                         st.error("❌ ユーザー名またはパスワードが正しくありません")
                 else:
                     st.warning("ユーザー名とパスワードを入力してください")
-        
-        with st.expander("💡 ログイン情報"):
-            st.info("""
-            **アカウント情報:**
-            - ユーザー名: `npochamu`
-            - パスワード: `kimimaro`
-            
-            **追加ユーザーを設定する場合:**
-            `.streamlit/secrets.toml` でユーザーを追加できます
-            ```toml
-            [auth]
-            [auth.users]
-            npochamu = "hashed_password_here"
-            user2 = "hashed_password_here"
-            ```
-            """)
 
 
 def logout_button():
