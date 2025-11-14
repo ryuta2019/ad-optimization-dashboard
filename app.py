@@ -236,12 +236,21 @@ def plot_hill_curve(x_data, y_data, trace, dates, channel_name, target_var):
     recent_mask = pd.to_datetime(dates) > four_weeks_ago
     past_mask = ~recent_mask
     
+    # 日付を文字列形式に変換
+    dates_str = pd.to_datetime(dates).strftime('%Y年%m月%d日')
+    
     if past_mask.any():
         fig.add_trace(go.Scatter(
             x=x_data[past_mask], y=y_data[past_mask],
             mode='markers',
             marker=dict(size=10, color='#636EFA', opacity=0.7),
-            name='過去の実績'
+            name='過去の実績',
+            customdata=dates_str[past_mask],
+            hovertemplate='<b>過去の実績</b><br>' +
+                          '週開始日: %{customdata}<br>' +
+                          '広告宣伝費: ¥%{x:,.0f}<br>' +
+                          f'{target_var}: %{{y:,.0f}}<br>' +
+                          '<extra></extra>'
         ))
     
     if recent_mask.any():
@@ -249,7 +258,13 @@ def plot_hill_curve(x_data, y_data, trace, dates, channel_name, target_var):
             x=x_data[recent_mask], y=y_data[recent_mask],
             mode='markers',
             marker=dict(symbol='star', size=15, color='gold', line=dict(width=1, color='black')),
-            name='直近4週間の実績'
+            name='直近4週間の実績',
+            customdata=dates_str[recent_mask],
+            hovertemplate='<b>直近4週間の実績</b><br>' +
+                          '週開始日: %{customdata}<br>' +
+                          '広告宣伝費: ¥%{x:,.0f}<br>' +
+                          f'{target_var}: %{{y:,.0f}}<br>' +
+                          '<extra></extra>'
         ))
     
     fig.update_layout(
@@ -313,12 +328,21 @@ def plot_linear_curve(x_data, y_data, trace, dates, channel_name, target_var):
     recent_mask = pd.to_datetime(dates) > four_weeks_ago
     past_mask = ~recent_mask
     
+    # 日付を文字列形式に変換
+    dates_str = pd.to_datetime(dates).strftime('%Y年%m月%d日')
+    
     if past_mask.any():
         fig.add_trace(go.Scatter(
             x=x_data[past_mask], y=y_data[past_mask],
             mode='markers',
             marker=dict(size=10, color='#636EFA', opacity=0.7),
-            name='過去の実績'
+            name='過去の実績',
+            customdata=dates_str[past_mask],
+            hovertemplate='<b>過去の実績</b><br>' +
+                          '週開始日: %{customdata}<br>' +
+                          '広告宣伝費: ¥%{x:,.0f}<br>' +
+                          f'{target_var}: %{{y:,.0f}}<br>' +
+                          '<extra></extra>'
         ))
     
     if recent_mask.any():
@@ -326,7 +350,13 @@ def plot_linear_curve(x_data, y_data, trace, dates, channel_name, target_var):
             x=x_data[recent_mask], y=y_data[recent_mask],
             mode='markers',
             marker=dict(symbol='star', size=15, color='gold', line=dict(width=1, color='black')),
-            name='直近4週間の実績'
+            name='直近4週間の実績',
+            customdata=dates_str[recent_mask],
+            hovertemplate='<b>直近4週間の実績</b><br>' +
+                          '週開始日: %{customdata}<br>' +
+                          '広告宣伝費: ¥%{x:,.0f}<br>' +
+                          f'{target_var}: %{{y:,.0f}}<br>' +
+                          '<extra></extra>'
         ))
     
     fig.update_layout(
