@@ -804,6 +804,16 @@ if st.session_state.combined_df is None:
 df = st.session_state.combined_df
 available_channels = df['channel'].unique().tolist()
 
+# データの最新日を取得し、4ヶ月前の日付を計算
+if not df.empty and 'week_start_date' in df.columns:
+    latest_date = pd.to_datetime(df['week_start_date']).max()
+    four_months_ago = latest_date - pd.DateOffset(months=4)
+    default_start_date = four_months_ago.date()
+    default_end_date = latest_date.date()
+else:
+    default_start_date = pd.to_datetime("2024-01-01").date()
+    default_end_date = pd.to_datetime("2025-09-30").date()
+
 # ========================================
 # メインコンテンツ
 # ========================================
@@ -830,9 +840,9 @@ if page == "📈 現状把握":
     with st.expander("📝 一括設定", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            bulk_start = st.date_input("学習期間(開始)", value=pd.to_datetime("2024-01-01"), key="bulk_start")
+            bulk_start = st.date_input("学習期間(開始)", value=default_start_date, key="bulk_start")
         with col2:
-            bulk_end = st.date_input("学習期間(終了)", value=pd.to_datetime("2025-09-30"), key="bulk_end")
+            bulk_end = st.date_input("学習期間(終了)", value=default_end_date, key="bulk_end")
         with col3:
             available_targets = [col for col in df.columns if '応募' in col or 'コンバージョン' in col]
             bulk_target = st.selectbox("目的変数", available_targets, key="bulk_target")
@@ -856,14 +866,14 @@ if page == "📈 現状把握":
             with col1:
                 start_date = st.date_input(
                     "学習期間(開始)",
-                    value=st.session_state.get(f"status_{channel}_start", pd.to_datetime("2024-01-01")),
+                    value=st.session_state.get(f"status_{channel}_start", default_start_date),
                     key=f"status_{channel}_start"
                 )
             
             with col2:
                 end_date = st.date_input(
                     "学習期間(終了)",
-                    value=st.session_state.get(f"status_{channel}_end", pd.to_datetime("2025-09-30")),
+                    value=st.session_state.get(f"status_{channel}_end", default_end_date),
                     key=f"status_{channel}_end"
                 )
             
@@ -978,6 +988,29 @@ elif page == "🎯 投資費用最適化":
         st.stop()
     
     st.subheader("各媒体のモデル設定")
+    
+    with st.expander("📝 一括設定", expanded=False):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            bulk_start = st.date_input("学習期間(開始)", value=default_start_date, key="opt_bulk_start")
+        with col2:
+            bulk_end = st.date_input("学習期間(終了)", value=default_end_date, key="opt_bulk_end")
+        with col3:
+            available_targets = [col for col in df.columns if '応募' in col or 'コンバージョン' in col]
+            bulk_target = st.selectbox("目的変数", available_targets, key="opt_bulk_target")
+        with col4:
+            bulk_model = st.selectbox("モデルタイプ", ["Hill Model", "線形回帰", "GAM"], key="opt_bulk_model")
+        
+        if st.button("全媒体に適用", key="apply_opt_bulk"):
+            for ch in opt_channels:
+                st.session_state[f"opt_{ch}_start"] = bulk_start
+                st.session_state[f"opt_{ch}_end"] = bulk_end
+                st.session_state[f"opt_{ch}_target"] = bulk_target
+                model_map = {"Hill Model": "hill", "線形回帰": "linear", "GAM": "gam"}
+                st.session_state[f"opt_{ch}_model"] = bulk_model
+            st.success("設定を全媒体に適用しました!")
+            st.rerun()
+    
     opt_config = {}
     
     for channel in opt_channels:
@@ -987,14 +1020,14 @@ elif page == "🎯 投資費用最適化":
             with col1:
                 start_date = st.date_input(
                     "学習期間(開始)",
-                    value=pd.to_datetime("2024-01-01"),
+                    value=st.session_state.get(f"opt_{channel}_start", default_start_date),
                     key=f"opt_{channel}_start"
                 )
             
             with col2:
                 end_date = st.date_input(
                     "学習期間(終了)",
-                    value=pd.to_datetime("2025-09-30"),
+                    value=st.session_state.get(f"opt_{channel}_end", default_end_date),
                     key=f"opt_{channel}_end"
                 )
             
@@ -1186,6 +1219,29 @@ elif page == "🔍 事前効果検証(前半)":
         st.stop()
     
     st.subheader("各媒体のモデル設定")
+    
+    with st.expander("📝 一括設定", expanded=False):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            bulk_start = st.date_input("学習期間(開始)", value=default_start_date, key="comp_bulk_start")
+        with col2:
+            bulk_end = st.date_input("学習期間(終了)", value=default_end_date, key="comp_bulk_end")
+        with col3:
+            available_targets = [col for col in df.columns if '応募' in col or 'コンバージョン' in col]
+            bulk_target = st.selectbox("目的変数", available_targets, key="comp_bulk_target")
+        with col4:
+            bulk_model = st.selectbox("モデルタイプ", ["Hill Model", "線形回帰", "GAM"], key="comp_bulk_model")
+        
+        if st.button("全媒体に適用", key="apply_comp_bulk"):
+            for ch in comparison_channels:
+                st.session_state[f"comp_{ch}_start"] = bulk_start
+                st.session_state[f"comp_{ch}_end"] = bulk_end
+                st.session_state[f"comp_{ch}_target"] = bulk_target
+                model_map = {"Hill Model": "hill", "線形回帰": "linear", "GAM": "gam"}
+                st.session_state[f"comp_{ch}_model"] = bulk_model
+            st.success("設定を全媒体に適用しました!")
+            st.rerun()
+    
     comparison_config = {}
     
     for channel in comparison_channels:
@@ -1195,14 +1251,14 @@ elif page == "🔍 事前効果検証(前半)":
             with col1:
                 start_date = st.date_input(
                     "学習期間(開始)",
-                    value=pd.to_datetime("2025-05-01"),
+                    value=st.session_state.get(f"comp_{channel}_start", default_start_date),
                     key=f"comp_{channel}_start"
                 )
             
             with col2:
                 end_date = st.date_input(
                     "学習期間(終了)",
-                    value=pd.to_datetime("2025-09-30"),
+                    value=st.session_state.get(f"comp_{channel}_end", default_end_date),
                     key=f"comp_{channel}_end"
                 )
             
