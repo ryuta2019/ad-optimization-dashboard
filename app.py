@@ -1583,9 +1583,9 @@ elif page == "🔍 事前効果検証(前半)":
 
 elif page == "📊 事前効果検証(後半)":
     st.markdown('<div class="main-header">事前効果検証(後半)</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Prophet時系列予測 - 複数シナリオ比較</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Prophet時系列予測 - 予測精度検証</div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="info-box">💡 Prophetモデルを使用して、複数の予算配分シナリオによる将来予測を比較できます</div>', unsafe_allow_html=True)
+    st.markdown('<div class="info-box">💡 学習期間のデータでモデルを学習し、そのX週先の実績データと予測データを比較して効果検証を行います</div>', unsafe_allow_html=True)
     
     # Prophet必須チェック
     try:
@@ -1636,381 +1636,381 @@ elif page == "📊 事前効果検証(後半)":
         st.stop()
     
     # ========================================
-    # Step 2: 予測設定
+    # Step 2: 検証期間設定
     # ========================================
-    st.subheader("🔮 Step 2: 予測設定")
+    st.subheader("🔮 Step 2: 検証期間設定")
     
     col1, col2 = st.columns(2)
     
     with col1:
         n_weeks_forecast = st.number_input(
-            "何週先まで予測しますか？",
+            "学習終了日から何週先まで検証しますか？",
             min_value=1,
             max_value=12,
             value=2,
             key="n_weeks_forecast"
         )
-        
-        forecast_start_date = st.date_input(
-            "予測開始日（通常は学習終了日の翌週）",
-            value=pd.to_datetime("2025-10-06"),
-            key="forecast_start_date"
-        )
     
     with col2:
-        st.info(f"📅 予測期間: {n_weeks_forecast}週間\n\n予測対象週:\n" + 
-                "\n".join([f"- 第{i+1}週: {(pd.to_datetime(forecast_start_date) + pd.Timedelta(days=7*i)).strftime('%Y-%m-%d')}" 
+        # 検証期間の自動計算
+        validation_start_date = pd.to_datetime(prophet_end_date) + pd.Timedelta(days=7)
+        validation_end_date = validation_start_date + pd.Timedelta(days=7 * (n_weeks_forecast - 1))
+        
+        st.info(f"📅 検証期間: {n_weeks_forecast}週間\n\n" + 
+                f"検証開始日: {validation_start_date.strftime('%Y-%m-%d')}\n" +
+                f"検証終了日: {validation_end_date.strftime('%Y-%m-%d')}\n\n" +
+                "検証対象週:\n" + 
+                "\n".join([f"- 第{i+1}週: {(validation_start_date + pd.Timedelta(days=7*i)).strftime('%Y-%m-%d')}" 
                           for i in range(n_weeks_forecast)]))
     
-    # ========================================
-    # Step 3: シナリオ設定
-    # ========================================
-    st.subheader("📝 Step 3: シナリオ設定")
+    # データの存在確認
+    df_for_check = df[df['channel'].isin(prophet_training_channels)].copy()
+    validation_df = df_for_check[
+        (df_for_check['week_start_date'] >= validation_start_date) & 
+        (df_for_check['week_start_date'] <= validation_end_date)
+    ].copy()
     
-    st.markdown("複数の予算配分案を比較するために、シナリオを作成してください。")
-    
-    # シナリオ管理
-    col1, col2, col3 = st.columns([3, 1, 1])
-    
-    with col1:
-        new_scenario_name = st.text_input(
-            "新しいシナリオ名",
-            placeholder="例: ベースライン案、積極投資案",
-            key="new_scenario_name"
-        )
-    
-    with col2:
-        if st.button("シナリオ追加", key="add_scenario"):
-            if new_scenario_name and new_scenario_name not in st.session_state.prophet_scenarios:
-                # デフォルトの予算テーブルを作成
-                default_budget = 1000000
-                budget_data = []
-                for i in range(n_weeks_forecast):
-                    week_date = (pd.to_datetime(forecast_start_date) + pd.Timedelta(days=7*i)).strftime('%Y-%m-%d')
-                    for channel in prophet_training_channels:
-                        budget_data.append({
-                            '週': f"第{i+1}週 ({week_date})",
-                            '媒体': channel,
-                            '予算': default_budget
-                        })
-                
-                st.session_state.prophet_scenarios[new_scenario_name] = pd.DataFrame(budget_data)
-                st.success(f"✅ シナリオ「{new_scenario_name}」を追加しました")
-                st.rerun()
-            elif new_scenario_name in st.session_state.prophet_scenarios:
-                st.warning("同名のシナリオが既に存在します")
-            else:
-                st.warning("シナリオ名を入力してください")
-    
-    with col3:
-        if st.session_state.prophet_scenarios:
-            scenario_to_delete = st.selectbox(
-                "削除するシナリオ",
-                list(st.session_state.prophet_scenarios.keys()),
-                key="scenario_to_delete"
-            )
-            if st.button("削除", key="delete_scenario"):
-                del st.session_state.prophet_scenarios[scenario_to_delete]
-                st.success(f"シナリオ「{scenario_to_delete}」を削除しました")
-                st.rerun()
-    
-    # 各シナリオの予算設定
-    if st.session_state.prophet_scenarios:
-        st.markdown("---")
-        st.markdown("### 各シナリオの予算設定")
-        
-        for scenario_name in list(st.session_state.prophet_scenarios.keys()):
-            with st.expander(f"📊 {scenario_name}", expanded=True):
-                st.markdown(f"**{scenario_name}の予算配分**")
-                
-                # データエディタで編集可能に
-                edited_df = st.data_editor(
-                    st.session_state.prophet_scenarios[scenario_name],
-                    use_container_width=True,
-                    num_rows="fixed",
-                    key=f"editor_{scenario_name}",
-                    column_config={
-                        "週": st.column_config.TextColumn("週", disabled=True),
-                        "媒体": st.column_config.TextColumn("媒体", disabled=True),
-                        "予算": st.column_config.NumberColumn(
-                            "予算 (円)",
-                            min_value=0,
-                            max_value=50000000,
-                            step=100000,
-                            format="¥%d"
-                        )
-                    }
-                )
-                
-                # 更新を保存
-                st.session_state.prophet_scenarios[scenario_name] = edited_df
-                
-                # サマリー表示
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    total_budget = edited_df['予算'].sum()
-                    st.metric("シナリオ総予算", f"¥{total_budget:,.0f}")
-                with col2:
-                    weekly_avg = total_budget / n_weeks_forecast
-                    st.metric("週平均予算", f"¥{weekly_avg:,.0f}")
-                with col3:
-                    channel_count = edited_df['媒体'].nunique()
-                    st.metric("対象媒体数", f"{channel_count}媒体")
+    if len(validation_df) == 0:
+        st.warning(f"⚠️ 検証期間（{validation_start_date.strftime('%Y-%m-%d')} ～ {validation_end_date.strftime('%Y-%m-%d')}）の実績データが存在しません。")
+        st.info("💡 検証期間を調整するか、学習終了日を変更してください。")
     else:
-        st.info("👆 上記の「シナリオ追加」ボタンから、比較したいシナリオを追加してください")
+        # 週ごとの実績データが全て存在するか確認
+        validation_weeks = pd.date_range(start=validation_start_date, end=validation_end_date, freq='W-MON')
+        missing_weeks = []
+        for week in validation_weeks:
+            week_data = validation_df[validation_df['week_start_date'] == week]
+            if len(week_data) == 0:
+                missing_weeks.append(week.strftime('%Y-%m-%d'))
+        
+        if missing_weeks:
+            st.warning(f"⚠️ 以下の週の実績データが不足しています: {', '.join(missing_weeks)}")
+        else:
+            st.success(f"✅ 検証期間の実績データが確認できました（{len(validation_df)}件）")
     
     # ========================================
-    # Step 4: モデル学習と予測実行
+    # Step 3: モデル学習と予測実行
     # ========================================
     st.markdown("---")
-    st.subheader("🚀 Step 4: 予測実行")
+    st.subheader("🚀 Step 3: モデル学習と予測実行")
     
-    if not st.session_state.prophet_scenarios:
-        st.warning("予測を実行するには、少なくとも1つのシナリオを作成してください")
-    else:
-        if st.button("モデル学習と予測を実行", type="primary", key="run_prophet"):
+    if st.button("モデル学習と予測を実行", type="primary", key="run_prophet"):
+        # モデル学習
+        with st.spinner("📚 Prophetモデルを学習中..."):
+            # 学習データの準備
+            df_for_training = df[df['channel'].isin(prophet_training_channels)].copy()
+            train_df = df_for_training[
+                (df_for_training['week_start_date'] >= pd.to_datetime(prophet_start_date)) & 
+                (df_for_training['week_start_date'] <= pd.to_datetime(prophet_end_date))
+            ].copy()
+            
+            # 週ごとに合算
+            aggregated_df = train_df.groupby('week_start_date').agg(
+                y=(prophet_target_var, 'sum'),
+                total_spend=('total_spend', 'sum')
+            ).reset_index()
+            
+            if len(aggregated_df) < 10:
+                st.error("学習データが10件未満です。学習期間を延ばしてください。")
+                st.stop()
+            
+            # Prophet用のデータ整形
+            prophet_df = aggregated_df.rename(columns={'week_start_date': 'ds'})
+            scaling_factor = 1_000_000
+            prophet_df['total_spend_scaled'] = prophet_df['total_spend'] / scaling_factor
+            prophet_df['floor'] = 0
+            cap_value = prophet_df['y'].max() * 1.2
+            prophet_df['cap'] = cap_value
+            
             # モデル学習
-            with st.spinner("📚 Prophetモデルを学習中..."):
-                # 学習データの準備
-                df_for_training = df[df['channel'].isin(prophet_training_channels)].copy()
-                train_df = df_for_training[
-                    (df_for_training['week_start_date'] >= pd.to_datetime(prophet_start_date)) & 
-                    (df_for_training['week_start_date'] <= pd.to_datetime(prophet_end_date))
-                ].copy()
+            try:
+                model = Prophet(
+                    growth='logistic',
+                    yearly_seasonality=True,
+                    weekly_seasonality=True,
+                    daily_seasonality=False,
+                    seasonality_mode='multiplicative',
+                    changepoint_prior_scale=0.01,
+                    seasonality_prior_scale=5.0
+                )
+                model.add_regressor('total_spend_scaled', prior_scale=0.5, standardize=False, mode='multiplicative')
+                model.fit(prophet_df)
                 
-                # 週ごとに合算
-                aggregated_df = train_df.groupby('week_start_date').agg(
-                    y=(prophet_target_var, 'sum'),
-                    total_spend=('total_spend', 'sum')
-                ).reset_index()
+                st.success(f"✅ モデル学習完了（学習データ: {len(aggregated_df)}週間）")
                 
-                if len(aggregated_df) < 10:
-                    st.error("学習データが10件未満です。学習期間を延ばしてください。")
-                    st.stop()
+            except Exception as e:
+                st.error(f"モデル学習中にエラーが発生しました: {e}")
+                st.stop()
+        
+        # 実績データの取得
+        with st.spinner("📊 実績データを取得中..."):
+            # 検証期間の実績データを取得
+            actual_df = df_for_training[
+                (df_for_training['week_start_date'] >= validation_start_date) & 
+                (df_for_training['week_start_date'] <= validation_end_date)
+            ].copy()
+            
+            if len(actual_df) == 0:
+                st.error(f"検証期間（{validation_start_date.strftime('%Y-%m-%d')} ～ {validation_end_date.strftime('%Y-%m-%d')}）の実績データが存在しません。")
+                st.stop()
+            
+            # 週ごとに実績を合算
+            actual_aggregated = actual_df.groupby('week_start_date').agg(
+                y_actual=(prophet_target_var, 'sum'),
+                total_spend_actual=('total_spend', 'sum')
+            ).reset_index()
+            actual_aggregated = actual_aggregated.sort_values('week_start_date').reset_index(drop=True)
+            
+            st.success(f"✅ 実績データ取得完了（{len(actual_aggregated)}週間）")
+        
+        # 予測データの生成
+        with st.spinner("🔮 予測データを生成中..."):
+            # 予測用データフレームの作成（実績の予算を使用）
+            future_df = pd.DataFrame({
+                'ds': actual_aggregated['week_start_date'],
+                'total_spend': actual_aggregated['total_spend_actual']
+            })
+            future_df['total_spend_scaled'] = future_df['total_spend'] / scaling_factor
+            future_df['floor'] = 0
+            future_df['cap'] = cap_value
+            
+            # 予測実行
+            forecast = model.predict(future_df)
+            
+            st.success("✅ 予測データ生成完了")
+        
+        # ========================================
+        # Step 4: 結果の可視化と比較
+        # ========================================
+        st.markdown("---")
+        st.subheader("📈 予測と実績の比較")
+        
+        # 過去のフィット
+        past_forecast = model.predict(prophet_df[['ds', 'total_spend_scaled', 'floor', 'cap']])
+        
+        # グラフ作成
+        fig = go.Figure()
+        
+        # 学習期間の実績
+        fig.add_trace(go.Scatter(
+            x=prophet_df['ds'],
+            y=prophet_df['y'],
+            mode='lines+markers',
+            name='学習期間の実績値',
+            line=dict(color='black', width=2),
+            marker=dict(size=6)
+        ))
+        
+        # モデルフィット
+        fig.add_trace(go.Scatter(
+            x=past_forecast['ds'],
+            y=past_forecast['yhat'],
+            mode='lines',
+            name='モデルフィット',
+            line=dict(color='royalblue', width=2, dash='dot')
+        ))
+        
+        # 検証期間の実績
+        fig.add_trace(go.Scatter(
+            x=actual_aggregated['week_start_date'],
+            y=actual_aggregated['y_actual'],
+            mode='lines+markers',
+            name='検証期間の実績値',
+            line=dict(color='green', width=3),
+            marker=dict(size=10, symbol='circle')
+        ))
+        
+        # 予測値
+        fig.add_trace(go.Scatter(
+            x=forecast['ds'],
+            y=forecast['yhat'],
+            mode='lines+markers',
+            name='予測値',
+            line=dict(color='red', width=3),
+            marker=dict(size=10, symbol='x')
+        ))
+        
+        # 予測の信頼区間
+        fig.add_trace(go.Scatter(
+            x=pd.concat([forecast['ds'], forecast['ds'][::-1]]),
+            y=pd.concat([forecast['yhat_upper'], forecast['yhat_lower'][::-1]]),
+            fill='toself',
+            fillcolor='rgba(255,0,0,0.2)',
+            line=dict(color='rgba(255,255,255,0)'),
+            hoverinfo="skip",
+            name='予測の95% 信頼区間',
+            showlegend=True
+        ))
+        
+        # 学習終了日の縦線
+        fig.add_vline(
+            x=pd.to_datetime(prophet_end_date),
+            line_dash="dash",
+            line_color="gray",
+            annotation_text="学習終了日",
+            annotation_position="top"
+        )
+        
+        fig.update_layout(
+            title=f'<b>予測精度検証: 学習期間のデータによる{n_weeks_forecast}週間先の{prophet_target_var}予測と実績の比較</b>',
+            xaxis_title='日付',
+            yaxis_title=prophet_target_var,
+            legend_title='凡例',
+            template='plotly_white',
+            hovermode='x unified',
+            height=600
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # ========================================
+        # Step 5: 精度評価指標
+        # ========================================
+        st.subheader("📊 予測精度評価")
+        
+        # 予測と実績の比較データフレーム作成
+        comparison_data = []
+        total_actual = 0
+        total_predicted = 0
+        total_abs_error = 0
+        total_squared_error = 0
+        
+        # 日付を統一してマージ
+        forecast['ds'] = pd.to_datetime(forecast['ds'])
+        actual_aggregated['week_start_date'] = pd.to_datetime(actual_aggregated['week_start_date'])
+        
+        # 日付でマージ
+        merged_df = forecast.merge(
+            actual_aggregated,
+            left_on='ds',
+            right_on='week_start_date',
+            how='inner'
+        )
+        
+        if len(merged_df) == 0:
+            st.warning("⚠️ 予測と実績の日付が一致しませんでした。データの日付形式を確認してください。")
+        else:
+            for idx, row in merged_df.iterrows():
+                date = row['ds']
+                predicted = row['yhat']
+                actual = row['y_actual']
+                spend = row['total_spend_actual']
+                lower = row['yhat_lower']
+                upper = row['yhat_upper']
                 
-                # Prophet用のデータ整形
-                prophet_df = aggregated_df.rename(columns={'week_start_date': 'ds'})
-                scaling_factor = 1_000_000
-                prophet_df['total_spend_scaled'] = prophet_df['total_spend'] / scaling_factor
-                prophet_df['floor'] = 0
-                cap_value = prophet_df['y'].max() * 1.2
-                prophet_df['cap'] = cap_value
+                error = predicted - actual
+                abs_error = abs(error)
+                squared_error = error ** 2
+                pct_error = (error / actual * 100) if actual > 0 else 0
                 
-                # モデル学習
-                try:
-                    model = Prophet(
-                        growth='logistic',
-                        yearly_seasonality=True,
-                        weekly_seasonality=True,
-                        daily_seasonality=False,
-                        seasonality_mode='multiplicative',
-                        changepoint_prior_scale=0.01,
-                        seasonality_prior_scale=5.0
-                    )
-                    model.add_regressor('total_spend_scaled', prior_scale=0.5, standardize=False, mode='multiplicative')
-                    model.fit(prophet_df)
-                    
-                    st.success(f"✅ モデル学習完了（学習データ: {len(aggregated_df)}週間）")
-                    
-                except Exception as e:
-                    st.error(f"モデル学習中にエラーが発生しました: {e}")
-                    st.stop()
-            
-            # 各シナリオの予測
-            with st.spinner("🔮 各シナリオの予測を実行中..."):
-                future_forecasts_by_scenario = {}
-                
-                for scenario_name, scenario_df in st.session_state.prophet_scenarios.items():
-                    # 週ごとに予算を合算
-                    overall_future_plans_agg = {}
-                    
-                    for _, row in scenario_df.iterrows():
-                        week_str = row['週']
-                        # 日付を抽出
-                        date_str = week_str.split('(')[1].split(')')[0]
-                        spend = row['予算']
-                        
-                        if date_str in overall_future_plans_agg:
-                            overall_future_plans_agg[date_str] += spend
-                        else:
-                            overall_future_plans_agg[date_str] = spend
-                    
-                    # 予測用データフレームの作成
-                    future_df = pd.DataFrame([
-                        {'ds': date, 'total_spend': spend}
-                        for date, spend in sorted(overall_future_plans_agg.items())
-                    ])
-                    future_df['ds'] = pd.to_datetime(future_df['ds'])
-                    future_df['total_spend_scaled'] = future_df['total_spend'] / scaling_factor
-                    future_df['floor'] = 0
-                    future_df['cap'] = cap_value
-                    
-                    # 予測実行
-                    forecast = model.predict(future_df)
-                    future_forecasts_by_scenario[scenario_name] = forecast
-                
-                st.success(f"✅ {len(future_forecasts_by_scenario)}シナリオの予測完了")
-            
-            # 結果の可視化
-            st.markdown("---")
-            st.subheader("📈 予測結果")
-            
-            # 過去のフィット
-            past_forecast = model.predict(prophet_df[['ds', 'total_spend_scaled', 'floor', 'cap']])
-            
-            # グラフ作成
-            fig = go.Figure()
-            
-            # 過去の実績
-            fig.add_trace(go.Scatter(
-                x=prophet_df['ds'],
-                y=prophet_df['y'],
-                mode='lines+markers',
-                name='過去の実績値 (合算)',
-                line=dict(color='black', width=2),
-                marker=dict(size=6)
-            ))
-            
-            # モデルフィット
-            fig.add_trace(go.Scatter(
-                x=past_forecast['ds'],
-                y=past_forecast['yhat'],
-                mode='lines',
-                name='モデルフィット',
-                line=dict(color='royalblue', width=2, dash='dot')
-            ))
-            
-            # 信頼区間
-            fig.add_trace(go.Scatter(
-                x=pd.concat([past_forecast['ds'], past_forecast['ds'][::-1]]),
-                y=pd.concat([past_forecast['yhat_upper'], past_forecast['yhat_lower'][::-1]]),
-                fill='toself',
-                fillcolor='rgba(65,105,225,0.2)',
-                line=dict(color='rgba(255,255,255,0)'),
-                hoverinfo="skip",
-                name='95% 信頼区間',
-                showlegend=True
-            ))
-            
-            # 各シナリオの予測
-            colors = ['red', 'green', 'purple', 'orange', 'cyan', 'magenta', 'brown', 'pink']
-            for i, (scenario_name, forecast) in enumerate(future_forecasts_by_scenario.items()):
-                color = colors[i % len(colors)]
-                fig.add_trace(go.Scatter(
-                    x=forecast['ds'],
-                    y=forecast['yhat'],
-                    mode='lines+markers',
-                    name=f'予測: {scenario_name}',
-                    line=dict(color=color, width=3),
-                    marker=dict(size=10)
-                ))
-            
-            fig.update_layout(
-                title=f'<b>全体予測: 複数シナリオによる{n_weeks_forecast}週間先の{prophet_target_var}予測</b>',
-                xaxis_title='日付',
-                yaxis_title=prophet_target_var,
-                legend_title='凡例',
-                template='plotly_white',
-                hovermode='x unified',
-                height=600
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # 予測結果の比較表
-            st.subheader("📊 シナリオ別予測結果比較")
-            
-            comparison_data = []
-            for scenario_name, forecast in future_forecasts_by_scenario.items():
-                total_predicted = forecast['yhat'].sum()
-                avg_per_week = forecast['yhat'].mean()
-                min_pred = forecast['yhat'].min()
-                max_pred = forecast['yhat'].max()
-                
-                # 予算情報
-                scenario_df = st.session_state.prophet_scenarios[scenario_name]
-                total_budget = scenario_df['予算'].sum()
-                avg_budget = total_budget / n_weeks_forecast
+                total_actual += actual
+                total_predicted += predicted
+                total_abs_error += abs_error
+                total_squared_error += squared_error
                 
                 comparison_data.append({
-                    'シナリオ': scenario_name,
-                    '予測合計成果': f'{total_predicted:,.0f}',
-                    '週平均予測': f'{avg_per_week:,.0f}',
-                    '最小値': f'{min_pred:,.0f}',
-                    '最大値': f'{max_pred:,.0f}',
-                    '総予算': f'¥{total_budget:,.0f}',
-                    '週平均予算': f'¥{avg_budget:,.0f}',
-                    'ROI': f'{total_predicted / total_budget:.4f}'
+                    '週': f'第{len(comparison_data)+1}週',
+                    '日付': date.strftime('%Y-%m-%d'),
+                    '実績値': f'{actual:,.0f}',
+                    '予測値': f'{predicted:,.0f}',
+                    '誤差': f'{error:+,.0f}',
+                    '絶対誤差': f'{abs_error:,.0f}',
+                    '誤差率 (%)': f'{pct_error:+.2f}',
+                    '下限 (5%)': f'{lower:,.0f}',
+                    '上限 (95%)': f'{upper:,.0f}',
+                    '実績予算': f'¥{spend:,.0f}',
+                    '信頼区間内': '✅' if lower <= actual <= upper else '❌'
                 })
-            
-            comparison_df = pd.DataFrame(comparison_data)
-            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-            
-            # ベストシナリオのハイライト
-            best_scenario_idx = comparison_df['ROI'].astype(float).idxmax()
-            best_scenario = comparison_df.loc[best_scenario_idx, 'シナリオ']
-            
-            st.success(f"🏆 **最もROIが高いシナリオ**: {best_scenario}")
-            
-            # 詳細な週別予測
-            with st.expander("📋 週別の詳細予測"):
-                for scenario_name, forecast in future_forecasts_by_scenario.items():
-                    st.markdown(f"**{scenario_name}**")
-                    
-                    weekly_detail = []
-                    for idx, row in forecast.iterrows():
-                        week_num = idx + 1
-                        date = row['ds'].strftime('%Y-%m-%d')
-                        pred = row['yhat']
-                        lower = row['yhat_lower']
-                        upper = row['yhat_upper']
-                        
-                        # 対応する予算を取得
-                        scenario_df = st.session_state.prophet_scenarios[scenario_name]
-                        budget_row = scenario_df[scenario_df['週'].str.contains(date)]
-                        budget = budget_row['予算'].sum() if not budget_row.empty else 0
-                        
-                        weekly_detail.append({
-                            '週': f'第{week_num}週',
-                            '日付': date,
-                            '予測値': f'{pred:,.0f}',
-                            '下限 (5%)': f'{lower:,.0f}',
-                            '上限 (95%)': f'{upper:,.0f}',
-                            '予算': f'¥{budget:,.0f}'
-                        })
-                    
-                    weekly_df = pd.DataFrame(weekly_detail)
-                    st.dataframe(weekly_df, use_container_width=True, hide_index=True)
-                    st.markdown("---")
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+        
+        # 精度指標の計算
+        if len(comparison_data) > 0:
+            mae = total_abs_error / len(comparison_data)
+            rmse = np.sqrt(total_squared_error / len(comparison_data))
+            # MAPEの計算（merged_dfから直接計算）
+            if len(merged_df) > 0:
+                mape_values = []
+                for _, row in merged_df.iterrows():
+                    actual_val = row['y_actual']
+                    pred_val = row['yhat']
+                    if actual_val > 0:
+                        mape_values.append(abs((pred_val - actual_val) / actual_val * 100))
+                mape = np.mean(mape_values) if mape_values else 0
+            else:
+                mape = 0
+        else:
+            mae = 0
+            rmse = 0
+            mape = 0
+        
+        # 全体の精度指標表示
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("平均絶対誤差 (MAE)", f"{mae:,.0f}")
+        with col2:
+            st.metric("二乗平均平方根誤差 (RMSE)", f"{rmse:,.0f}")
+        with col3:
+            st.metric("平均絶対誤差率 (MAPE)", f"{mape:.2f}%")
+        with col4:
+            total_error_pct = ((total_predicted - total_actual) / total_actual * 100) if total_actual > 0 else 0
+            st.metric("合計誤差率", f"{total_error_pct:+.2f}%")
+        
+        # サマリー
+        st.markdown("---")
+        st.subheader("📋 検証結果サマリー")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**実績サマリー**")
+            st.write(f"- 実績合計: {total_actual:,.0f}")
+            st.write(f"- 実績平均（週）: {total_actual / len(comparison_data):,.0f}" if len(comparison_data) > 0 else "- 実績平均（週）: 0")
+            st.write(f"- 実績予算合計: ¥{actual_aggregated['total_spend_actual'].sum():,.0f}")
+        
+        with col2:
+            st.markdown("**予測サマリー**")
+            st.write(f"- 予測合計: {total_predicted:,.0f}")
+            st.write(f"- 予測平均（週）: {total_predicted / len(comparison_data):,.0f}" if len(comparison_data) > 0 else "- 予測平均（週）: 0")
+            st.write(f"- 予測精度: {100 - mape:.2f}%")
+        
+        # 信頼区間のカバレッジ
+        in_interval_count = sum([1 for row in comparison_data if row['信頼区間内'] == '✅'])
+        coverage_rate = (in_interval_count / len(comparison_data) * 100) if len(comparison_data) > 0 else 0
+        
+        st.info(f"📊 **信頼区間カバレッジ**: {in_interval_count}/{len(comparison_data)}週 ({coverage_rate:.1f}%) - 実績値が95%信頼区間内に入っている割合")
     
     # 使い方ガイド
     with st.expander("❓ 使い方ガイド"):
         st.markdown("""
-        ### Prophet時系列予測機能の使い方
+        ### Prophet時系列予測精度検証機能の使い方
         
         **Step 1: モデル学習設定**
         - 学習期間: 過去のデータを使ってモデルを学習する期間を設定
         - 目的変数: 予測したい指標（応募数など）を選択
         - 学習媒体: 複数媒体のデータを合算して学習します
         
-        **Step 2: 予測設定**
-        - 予測週数: 何週先まで予測するか設定（1〜12週）
-        - 予測開始日: 通常は学習終了日の翌週を設定
+        **Step 2: 検証期間設定**
+        - 検証週数: 学習終了日から何週先まで検証するか設定（1〜12週）
+        - 検証期間は自動的に学習終了日の翌週から計算されます
         
-        **Step 3: シナリオ設定**
-        - 複数の予算配分案（シナリオ）を作成
-        - 各シナリオで媒体×週の予算を設定
-        - データエディタで直接編集可能
+        **Step 3: 実行と結果確認**
+        - Prophetモデルが学習期間のデータで学習されます
+        - 検証期間の実績データが取得されます
+        - 学習したモデルが検証期間を予測します
+        - 予測と実績を比較して精度を評価します
         
-        **Step 4: 実行と結果確認**
-        - Prophetモデルが学習され、各シナリオの予測を実行
-        - グラフで視覚的に比較
-        - ROIが最も高いシナリオを自動判定
+        ### 📊 評価指標の説明
+        - **MAE (平均絶対誤差)**: 予測値と実績値の差の絶対値の平均。小さいほど良い
+        - **RMSE (二乗平均平方根誤差)**: 誤差の二乗の平均の平方根。MAEより大きな誤差を重視
+        - **MAPE (平均絶対誤差率)**: 誤差率の絶対値の平均。100%に近いほど精度が低い
+        - **信頼区間カバレッジ**: 実績値が95%信頼区間内に入っている割合。理論的には約95%が理想
         
         ### 💡 活用のコツ
-        - ベースライン案と積極投資案など、複数案を比較
-        - 信頼区間（95%）も表示されるため、不確実性も考慮可能
-        - 週別の詳細予測で、各週の成果を確認
+        - 学習期間を長くすると、より多くのパターンを学習できます
+        - 検証期間の実績データが存在することを確認してください
+        - 信頼区間のカバレッジが低い場合は、モデルの調整が必要かもしれません
         """)
 
 # フッター
