@@ -1842,12 +1842,26 @@ elif page == "📊 事前効果検証(後半)":
         ))
         
         # 学習終了日の縦線
-        fig.add_vline(
-            x=pd.to_datetime(prophet_end_date).strftime('%Y-%m-%d'),
-            line_dash="dash",
-            line_color="gray",
-            annotation_text="学習終了日",
-            annotation_position="top"
+        fig.add_shape(
+            type="line",
+            x0=pd.to_datetime(prophet_end_date),
+            x1=pd.to_datetime(prophet_end_date),
+            y0=0,
+            y1=1,
+            yref="paper",
+            line=dict(color="gray", width=2, dash="dash"),
+        )
+        fig.add_annotation(
+            x=pd.to_datetime(prophet_end_date),
+            y=1,
+            yref="paper",
+            text="学習終了日",
+            showarrow=False,
+            xanchor="center",
+            yanchor="bottom",
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="gray",
+            borderwidth=1
         )
         
         fig.update_layout(
