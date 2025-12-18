@@ -8,3 +8,8 @@ scipy
 scikit-learn
 plotly
 prophet
+databricks-connect
+databricks-sdk
+python-dotenv
+ipykernel
+jupyter
